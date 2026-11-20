@@ -57,9 +57,10 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            ./gradlew :app:connectedDebugAndroidTest -PtestAbi=x86_64 --stacktrace || touch tests-failed
+            ./gradlew :app:connectedDebugAndroidTest -PtestAbi=x86_64 -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true --stacktrace || touch tests-failed
             mkdir -p test-output && adb pull /sdcard/Android/data/app.clipradar/files/test-output/. test-output/ || true
             adb logcat -d -s ClipRadarTest:I ClipRadarWhisper:* Whisper:* AndroidRuntime:E > test-output/logcat.txt || true
+            echo "===== Результаты проверок =====" && grep -h "ClipRadarTest" test-output/logcat.txt | sed 's/.*ClipRadarTest: //' | head -80 || true
             test ! -f tests-failed
 
       - name: Сохранить результаты (кадры клипов, отчёты)
