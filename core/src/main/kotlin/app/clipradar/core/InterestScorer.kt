@@ -17,6 +17,8 @@ data class MomentSignals(
     val audioJumpDb: Double? = null,
     /** Сила пика на графике пересмотров YouTube (0..1). */
     val heatmap: Double? = null,
+    /** «Обычная» активность чата (сообщений за 10 секунд) — чтобы честно оценивать огромные чаты. */
+    val chatBaseline: Double? = null,
 )
 
 data class InterestScore(val score: Int, val reason: String)
@@ -35,9 +37,14 @@ object InterestScorer {
         data class Part(val weight: Double, val value: Double, val label: String)
 
         val parts = buildList {
-            s.chatRatio?.let { add(Part(W_CHAT, clamp01((it - 1.0) / 5.0), "чат ×${fmt1(it)}")) }
+            // В огромном чате всплеск ×3 — это максимум, в обычном — ×6.
+            val bigChat = (s.chatBaseline ?: 0.0) >= BurstRule.BIG_CHAT_BASELINE
+            val ratioScale = if (bigChat) 2.0 else 5.0
+            s.chatRatio?.let { add(Part(W_CHAT, clamp01((it - 1.0) / ratioScale), "чат ×${fmt1(it)}")) }
             s.hypeShare?.let { add(Part(W_HYPE, clamp01(it / 0.4), "смех/эмоуты ${(it * 100).roundToInt()}%")) }
-            s.uniqueChatters?.let { add(Part(W_CROWD, clamp01(it / 25.0), "пишут $it чел.")) }
+            // В огромном чате «много людей» — это сотни, а не 25.
+            val crowdScale = if (bigChat) 150.0 else 25.0
+            s.uniqueChatters?.let { add(Part(W_CROWD, clamp01(it / crowdScale), "пишут $it чел.")) }
             s.audioJumpDb?.let { add(Part(W_AUDIO, clamp01(it / 10.0), "звук +${fmt1(maxOf(0.0, it))} дБ")) }
             s.heatmap?.let { add(Part(W_HEAT, clamp01(it), "пик пересмотров")) }
         }

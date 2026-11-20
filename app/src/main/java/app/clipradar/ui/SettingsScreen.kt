@@ -73,6 +73,12 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Text(
+                "У огромных чатов (100+ сообщений за 10 с, как у крупных западных стримеров) планка ниже — " +
+                    "там всплеск в 1,8 раза уже большой момент. Чат понимает русский и английский смех, эмоуты и эмодзи 😂💀.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text("Порог оценки: ${s.scoreThreshold}", style = MaterialTheme.typography.bodyLarge)
             Slider(
                 value = s.scoreThreshold.toFloat(),

@@ -36,6 +36,20 @@ class InterestScorerTest {
     }
 
     @Test
+    fun bigChatBurstScoresAboveThreshold() {
+        // Огромный чат взорвался в 2.2 раза, половина сообщений — смех, 400 человек.
+        val big = InterestScorer.score(
+            MomentSignals(chatRatio = 2.2, hypeShare = 0.5, uniqueChatters = 400, audioJumpDb = 6.0, chatBaseline = 300.0),
+        ).score
+        assertTrue(big >= 60, "score=$big")
+        // Тот же всплеск без учёта размера чата оценивался бы ниже.
+        val asSmall = InterestScorer.score(
+            MomentSignals(chatRatio = 2.2, hypeShare = 0.5, uniqueChatters = 20, audioJumpDb = 6.0),
+        ).score
+        assertTrue(big > asSmall)
+    }
+
+    @Test
     fun missingSignalsAreIgnored() {
         assertEquals(0, InterestScorer.score(MomentSignals()).score)
         assertEquals(100, InterestScorer.score(MomentSignals(heatmap = 1.0)).score)

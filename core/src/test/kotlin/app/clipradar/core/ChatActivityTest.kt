@@ -21,6 +21,25 @@ class ChatActivityTest {
     }
 
     @Test
+    fun englishChatAndEmojisCountDouble() {
+        for (msg in listOf("LMAO", "hahahaha", "ICANT", "W", "WWWW", "OMEGALUL", "KEKL", "no way bro", "💀💀💀", "😂", "Sheesh", "PogU", "LMFAO what"))
+            assertEquals(2, ChatKeywords.weight(msg), msg)
+        for (msg in listOf("hello chat", "what game is this", "where is he from", "wow nice"))
+            assertEquals(1, ChatKeywords.weight(msg), msg)
+    }
+
+    @Test
+    fun bigChatNeedsSmallerJump() {
+        val rule = BurstRule()
+        // Огромный чат: обычно 300 за 10 секунд. Всплеск до 600 (×2) — это момент.
+        val big = ChatSnapshot(weighted = 600, messages = 400, hypeMessages = 200, uniqueUsers = 350, baseline = 300.0, historyMs = 120_000)
+        assertTrue(rule.isBurst(big))
+        // Маленький чат: обычно 10, всплеск ×2 (20) — ещё не момент.
+        val small = ChatSnapshot(weighted = 20, messages = 15, hypeMessages = 5, uniqueUsers = 12, baseline = 10.0, historyMs = 120_000)
+        assertFalse(rule.isBurst(small))
+    }
+
+    @Test
     fun countsOnlyLast10Seconds() {
         val t = ChatActivityTracker()
         t.start(0)

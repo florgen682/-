@@ -1,25 +1,41 @@
 package app.clipradar.core
 
-/** Слова, которые означают «смешно/круто». Сообщение с ними считается за два. */
+/**
+ * Слова, которые означают «смешно/круто». Сообщение с ними считается за два.
+ * Есть и русские, и английские слова + эмоуты Twitch и эмодзи — для западных стримеров.
+ */
 object ChatKeywords {
     /** Слово засчитывается, если сообщение содержит его как начало слова (pog → poggers). */
     private val prefixWords = listOf(
-        "lol", "kekw", "lul", "pog", "clip", "лол", "кек", "жесть", "имба",
+        // русские
+        "лол", "кек", "жесть", "имба",
+        // английские и эмоуты Twitch
+        "lol", "kekw", "kekl", "lul", "pog", "clip", "lmao", "lmfao", "rofl", "icant",
+        "omegalul", "sheesh", "noway", "insane", "wtf", "omg", "goated", "dead",
     )
 
-    /** Эти части засчитываются где угодно внутри слова (ахахаха, OMEGALUL, хахах). */
-    private val anywhere = listOf("ахах", "хаха", "lul", "kekw")
+    /** Эти части засчитываются где угодно внутри слова (ахахаха, OMEGALUL, hahaha). */
+    private val anywhere = listOf("ахах", "хаха", "haha", "lmao", "lul", "kekw")
 
-    /** «ору» — только целым словом (иначе «оружие» тоже бы считалось). */
-    private val exactWords = setOf("ору", "орууу", "оруу")
+    /** Только целым словом: «ору» (иначе «оружие» тоже бы считалось), «W»-спам, «xdd». */
+    private val exactWords = setOf("ору", "оруу", "орууу", "w", "ww", "www", "xd", "xdd", "ez", "holy")
+
+    /** Фразы из нескольких слов. */
+    private val phrases = listOf("no way", "oh my god", "let's go", "lets go")
+
+    /** Эмодзи смеха и шока. */
+    private val emojis = listOf("😂", "🤣", "💀", "😭", "🔥", "😱")
 
     private val splitter = Regex("[^\\p{L}\\p{N}]+")
 
     fun isHype(text: String): Boolean {
+        if (emojis.any { text.contains(it) }) return true
         val lower = text.lowercase()
+        if (phrases.any { lower.contains(it) }) return true
         val tokens = lower.split(splitter).filter { it.isNotEmpty() }
         for (t in tokens) {
             if (t in exactWords || (t.startsWith("ору") && t.drop(3).all { it == 'у' })) return true
+            if (t.length >= 2 && t.all { it == 'w' }) return true // WWWW
             if (prefixWords.any { t.startsWith(it) }) return true
             if (anywhere.any { t.contains(it) }) return true
         }
@@ -59,12 +75,22 @@ data class BurstRule(
     val minWeighted: Int = 15,
     val warmupMs: Long = 60_000,
 ) {
+    /**
+     * Во сколько раз чат должен «взорваться». У огромных чатов (сотни сообщений за 10 секунд,
+     * как у крупных западных стримеров) всплеск в 2 раза — это уже очень много, поэтому планка ниже.
+     */
+    fun effectiveMultiplier(baseline: Double): Double =
+        if (baseline >= BIG_CHAT_BASELINE) maxOf(1.5, multiplier * 0.6) else multiplier
+
     fun isBurst(s: ChatSnapshot): Boolean =
         s.historyMs >= warmupMs &&
             s.weighted > minWeighted &&
-            s.weighted >= multiplier * maxOf(s.baseline, 1.0)
+            s.weighted >= effectiveMultiplier(s.baseline) * maxOf(s.baseline, 1.0)
 
     companion object {
+        /** С какого уровня (взвешенных сообщений за 10 секунд) чат считается «огромным». */
+        const val BIG_CHAT_BASELINE = 100.0
+
         /** Чувствительность чата: 0 — низкая, 1 — обычная, 2 — высокая. */
         fun forSensitivity(level: Int): BurstRule = when (level) {
             0 -> BurstRule(multiplier = 4.0, minWeighted = 25)

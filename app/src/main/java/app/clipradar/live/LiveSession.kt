@@ -182,7 +182,9 @@ class LiveSession(
         // Скачок громкости вокруг момента.
         val loud = AudioAnalyzer.loudnessPerSecond(source)
         val jump = Loudness.jumpDb(loud, plan.momentOffsetSec, before = 10, after = 5)
-        val score = InterestScorer.score(MomentSignals(snap.ratio, snap.hypeShare, snap.uniqueUsers, jump))
+        val score = InterestScorer.score(
+            MomentSignals(snap.ratio, snap.hypeShare, snap.uniqueUsers, jump, chatBaseline = snap.baseline),
+        )
 
         val good = score.score >= s.scoreThreshold
         val status = when {
