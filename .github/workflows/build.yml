@@ -54,6 +54,7 @@ jobs:
           else
             echo "::warning::Секреты с ключом не заданы — подписываю ВРЕМЕННЫМ ключом. Обновление поверх старой версии не установится."
             PASS="temp-$(openssl rand -hex 12)"
+            echo "::add-mask::$PASS"
             keytool -genkeypair -v -keystore "$KS" -storetype PKCS12 -alias temp \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -storepass "$PASS" -keypass "$PASS" -dname "CN=Clip Radar Temp"
