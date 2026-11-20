@@ -49,17 +49,16 @@ private class ShortsBlurShaderProgram(
     useHdr: Boolean,
 ) : BaseGlShaderProgram(useHdr, 1) {
 
-    private val program: GlProgram
+    private val program: GlProgram = try {
+        GlProgram(VERTEX, if (pass == 1) FRAGMENT_PASS1 else FRAGMENT_PASS2)
+    } catch (e: GlUtil.GlException) {
+        throw VideoFrameProcessingException(e)
+    }
     private var fgSize = floatArrayOf(1f, 1f)
     private var bgScale = floatArrayOf(1f, 1f)
     private var blurStep = floatArrayOf(0f, 0f)
 
     init {
-        try {
-            program = GlProgram(VERTEX, if (pass == 1) FRAGMENT_PASS1 else FRAGMENT_PASS2)
-        } catch (e: GlUtil.GlException) {
-            throw VideoFrameProcessingException(e)
-        }
         program.setBufferAttribute(
             "aFramePosition",
             GlUtil.getNormalizedCoordinateBounds(),
@@ -77,7 +76,7 @@ private class ShortsBlurShaderProgram(
         // Фон: заполняем весь кадр с обрезкой краёв (увеличенная копия).
         bgScale = if (inAspect >= outAspect) floatArrayOf(outAspect / inAspect, 1f)
         else floatArrayOf(1f, inAspect / outAspect)
-        // Радиус размытия ~48 пикселей итогового кадра.
+        // Радиус размытия ~100 пикселей итогового кадра.
         blurStep = if (pass == 1) floatArrayOf(BLUR_RADIUS_PX / outWidth * bgScale[0] / TAPS_HALF, 0f)
         else floatArrayOf(0f, BLUR_RADIUS_PX / outHeight / TAPS_HALF)
         return Size(outWidth, outHeight)
@@ -107,7 +106,7 @@ private class ShortsBlurShaderProgram(
     }
 
     companion object {
-        private const val BLUR_RADIUS_PX = 48f
+        private const val BLUR_RADIUS_PX = 100f
         private const val TAPS_HALF = 10f
 
         private const val VERTEX = """

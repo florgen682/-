@@ -89,7 +89,7 @@ interface MomentDao {
     suspend fun update(m: MomentEntity)
 
     @Query("UPDATE moments SET status = :status, error = :error WHERE id = :id")
-    suspend fun setStatus(id: Long, status: String, error: String? = null)
+    suspend fun setStatus(id: Long, status: String, error: String?)
 
     @Query("DELETE FROM moments WHERE id = :id")
     suspend fun delete(id: Long)

@@ -1,0 +1,75 @@
+# Диагностика: проверяет, что сервисы, которыми пользуется приложение, отвечают так, как ожидает код.
+# Запускается вручную (Actions → Network check → Run workflow) или при изменении этого файла.
+name: Network check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['claude/**', main]
+    paths: ['.github/workflows/network-check.yml']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Установить yt-dlp
+        run: pip install -U yt-dlp websocket-client
+
+      - name: Twitch — кто в эфире (тот же запрос, что в приложении)
+        run: |
+          curl -s -X POST https://gql.twitch.tv/gql \
+            -H "Client-ID: kimne78kx3ncx6brgo4mv6wki5h1ko" -H "Content-Type: application/json" \
+            -d '{"query":"query { users(logins: [\"kaicenat\",\"xqc\",\"shroud\",\"tarik\",\"pokimane\",\"ibai\",\"jynxzi\",\"caseoh_\",\"zackrawrr\",\"summit1g\"]) { login displayName stream { id title createdAt } } }"}' \
+            | tee gql.json | head -c 1500; echo
+          python3 -c "
+          import json; d=json.load(open('gql.json'))
+          live=[u['login'] for u in d['data']['users'] if u and u['stream']]
+          print('LIVE:', live)
+          open('live.txt','w').write(live[0] if live else '')
+          "
+
+      - name: Twitch — ссылка на поток и плейлист
+        run: |
+          CH=$(cat live.txt)
+          if [ -z "$CH" ]; then echo "никого нет в эфире — пропускаю"; exit 0; fi
+          URL=$(yt-dlp -g -f "best[height<=720]/best" "https://www.twitch.tv/$CH" | head -1)
+          echo "stream url host: $(echo $URL | cut -d/ -f3)"
+          curl -s "$URL" | head -30
+
+      - name: Twitch — анонимный чат 20 секунд
+        run: |
+          CH=$(cat live.txt)
+          if [ -z "$CH" ]; then echo "никого нет в эфире — пропускаю"; exit 0; fi
+          python3 - "$CH" <<'PY'
+          import sys, time, websocket
+          ch = sys.argv[1]
+          ws = websocket.create_connection("wss://irc-ws.chat.twitch.tv:443", timeout=5)
+          for line in ["CAP REQ :twitch.tv/tags twitch.tv/commands", "PASS SCHMOOPIIE", "NICK justinfan12345", "JOIN #" + ch]:
+              ws.send(line)
+          n = 0; start = time.time(); sample = []
+          while time.time() - start < 20:
+              try:
+                  frame = ws.recv()
+              except Exception:
+                  continue
+              for l in frame.split("\r\n"):
+                  if l.startswith("PING"): ws.send("PONG :tmi.twitch.tv")
+                  if " PRIVMSG " in l:
+                      n += 1
+                      if len(sample) < 3: sample.append(l[:200])
+          print("messages in 20s:", n)
+          print("\n".join(sample))
+          PY
+
+      - name: YouTube — график «самые пересматриваемые»
+        continue-on-error: true
+        run: |
+          yt-dlp -J --skip-download "https://www.youtube.com/watch?v=dQw4w9WgXcQ" > yt.json || true
+          python3 -c "
+          import json
+          try:
+              d=json.load(open('yt.json')); h=d.get('heatmap') or []
+              print('title:', d.get('title')); print('heatmap points:', len(h)); print(h[:3])
+          except Exception as e: print('YouTube не ответил (на серверах GitHub это бывает):', e)
+          "

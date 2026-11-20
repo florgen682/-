@@ -38,7 +38,7 @@ object ClipQueue {
 
     suspend fun enqueue(context: Context, momentId: Long) {
         val m = AppDatabase.get(context).moments().get(momentId) ?: return
-        AppDatabase.get(context).moments().setStatus(momentId, MomentStatus.QUEUED)
+        AppDatabase.get(context).moments().setStatus(momentId, MomentStatus.QUEUED, null)
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(if (m.isLive) NetworkType.NOT_REQUIRED else NetworkType.CONNECTED)
             .build()
@@ -69,7 +69,7 @@ class ClipWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
 
         runCatching { setForeground(foregroundInfo(m.title)) }
-        dao.setStatus(id, MomentStatus.CUTTING)
+        dao.setStatus(id, MomentStatus.CUTTING, null)
         val settings = Settings.get(ctx).current
         val work = Gallery.workDir(ctx, "clip_$id")
         try {
