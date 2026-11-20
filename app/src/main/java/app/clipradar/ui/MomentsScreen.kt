@@ -61,6 +61,7 @@ import app.clipradar.data.MomentEntity
 import app.clipradar.data.MomentStatus
 import app.clipradar.live.LiveSession
 import app.clipradar.media.Gallery
+import app.clipradar.work.ClipProgress
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
@@ -219,6 +220,7 @@ private fun statusText(status: String) = when (status) {
 @Composable
 private fun MomentCard(m: MomentEntity, threshold: Int, vm: MainViewModel) {
     val context = LocalContext.current
+    val progress by ClipProgress.state.collectAsState()
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Thumbnail(m)
@@ -237,6 +239,9 @@ private fun MomentCard(m: MomentEntity, threshold: Int, vm: MainViewModel) {
                         Spacer(Modifier.width(6.dp))
                         CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp)
                     }
+                }
+                progress[m.id]?.takeIf { m.status == MomentStatus.CUTTING }?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = Violet)
                 }
                 m.error?.takeIf { m.status == MomentStatus.FAILED }?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = Hot)

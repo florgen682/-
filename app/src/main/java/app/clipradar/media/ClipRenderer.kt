@@ -17,6 +17,7 @@ import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import app.clipradar.data.ClipLayout
@@ -48,15 +49,17 @@ object ClipRenderer {
         layout: ClipLayout,
         clipStartMs: Long? = null,
         clipEndMs: Long? = null,
+        /** Процент готовности 0..100. */
+        onProgress: ((Int) -> Unit)? = null,
     ): ClipLayout {
         try {
-            renderOnce(context, input, output, layout, clipStartMs, clipEndMs)
+            renderOnce(context, input, output, layout, clipStartMs, clipEndMs, onProgress)
             return layout
         } catch (e: ExportException) {
             if (layout != ClipLayout.BLUR) throw e
             Log.w(TAG, "Размытый фон не получился (${e.errorCodeName}), делаю чёрные поля", e)
             output.delete()
-            renderOnce(context, input, output, ClipLayout.BLACK, clipStartMs, clipEndMs)
+            renderOnce(context, input, output, ClipLayout.BLACK, clipStartMs, clipEndMs, onProgress)
             return ClipLayout.BLACK
         }
     }
@@ -89,6 +92,7 @@ object ClipRenderer {
         layout: ClipLayout,
         clipStartMs: Long?,
         clipEndMs: Long?,
+        onProgress: ((Int) -> Unit)?,
     ) {
         output.parentFile?.mkdirs()
         output.delete()
@@ -133,7 +137,24 @@ object ClipRenderer {
                     })
                     .build()
                 transformer.start(edited, output.absolutePath)
-                cont.invokeOnCancellation { main.post { runCatching { transformer.cancel() } } }
+                // Раз в секунду спрашиваем у Transformer, сколько процентов готово.
+                val holder = ProgressHolder()
+                val poll = object : Runnable {
+                    override fun run() {
+                        if (!cont.isActive) return
+                        if (transformer.getProgress(holder) == Transformer.PROGRESS_STATE_AVAILABLE) {
+                            onProgress?.invoke(holder.progress)
+                        }
+                        main.postDelayed(this, 1_000)
+                    }
+                }
+                main.postDelayed(poll, 1_000)
+                cont.invokeOnCancellation {
+                    main.post {
+                        main.removeCallbacks(poll)
+                        runCatching { transformer.cancel() }
+                    }
+                }
             }
         }
     }

@@ -54,13 +54,19 @@ object YtDlp {
     }
 
     /** Запуск yt-dlp; если корутину отменили — процесс тоже останавливается. */
-    private suspend fun run(context: Context, request: YoutubeDLRequest): YoutubeDLResponse {
+    private suspend fun run(
+        context: Context,
+        request: YoutubeDLRequest,
+        onProgress: ((Float, String) -> Unit)? = null,
+    ): YoutubeDLResponse {
         ensureInit(context)
         val pid = UUID.randomUUID().toString()
+        val callback: ((Float, Long, String) -> Unit)? =
+            onProgress?.let { cb -> { progress: Float, _: Long, line: String -> cb(progress, line) } }
         return suspendCancellableCoroutine { cont ->
             thread(name = "yt-dlp-$pid") {
                 try {
-                    val r = YoutubeDL.getInstance().execute(request, pid, false, null)
+                    val r = YoutubeDL.getInstance().execute(request, pid, false, callback)
                     if (cont.isActive) cont.resume(r)
                 } catch (e: Throwable) {
                     if (cont.isActive) cont.resumeWithException(e)
@@ -112,6 +118,8 @@ object YtDlp {
         endSec: Double,
         maxHeight: Int,
         dir: File,
+        /** Процент скачивания (или null, если неизвестен). */
+        onProgress: ((Int?) -> Unit)? = null,
     ): File {
         dir.mkdirs()
         val h = maxHeight
@@ -126,7 +134,7 @@ object YtDlp {
             .addOption("--no-mtime")
             .addOption("-o", File(dir, "section.%(ext)s").absolutePath)
         try {
-            run(context, req)
+            run(context, req) { p, _ -> onProgress?.invoke(if (p > 0f) p.toInt().coerceIn(0, 100) else null) }
         } catch (e: Exception) {
             throw UserFacingException(explain(e), e)
         }

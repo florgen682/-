@@ -129,7 +129,8 @@ object Notifier {
             context, (10_000 + momentId).toInt(),
             base(context, CH_CLIPS)
                 .setContentTitle("✅ Клип готов")
-                .setContentText(title)
+                .setContentText(title.lineSequence().first())
+                .setStyle(NotificationCompat.BigTextStyle().bigText(title))
                 .setContentIntent(openPi)
                 .addAction(0, "Открыть", openPi)
                 .addAction(0, "Поделиться", sharePi)
