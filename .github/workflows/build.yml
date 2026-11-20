@@ -1,0 +1,101 @@
+# Автоматическая сборка Clip Radar.
+# При каждом push в main (и в ветки claude/**) GitHub сам:
+#   1) запускает unit-тесты,
+#   2) собирает подписанные release APK (arm64-v8a и armeabi-v7a),
+#   3) публикует их на странице Releases — их можно скачать с телефона без входа в аккаунт.
+name: Build APK
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # нужно, чтобы создавать Releases
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Подготовить ключ подписи
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          KS="$RUNNER_TEMP/release.keystore"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Использую постоянный ключ из GitHub Secrets"
+            echo "$KEYSTORE_BASE64" | base64 -d > "$KS"
+            {
+              echo "SIGNING_KEYSTORE_PATH=$KS"
+              echo "SIGNING_STORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "SIGNING_KEY_ALIAS=$KEY_ALIAS"
+              echo "SIGNING_KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+              echo "SIGNING_KIND=permanent"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::warning::Секреты с ключом не заданы — подписываю ВРЕМЕННЫМ ключом. Обновление поверх старой версии не установится."
+            PASS="temp-$(openssl rand -hex 12)"
+            keytool -genkeypair -v -keystore "$KS" -storetype PKCS12 -alias temp \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$PASS" -keypass "$PASS" -dname "CN=Clip Radar Temp"
+            {
+              echo "SIGNING_KEYSTORE_PATH=$KS"
+              echo "SIGNING_STORE_PASSWORD=$PASS"
+              echo "SIGNING_KEY_ALIAS=temp"
+              echo "SIGNING_KEY_PASSWORD=$PASS"
+              echo "SIGNING_KIND=temporary"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Unit-тесты
+        run: ./gradlew :core:test --stacktrace
+
+      - name: Сборка release APK
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Переименовать APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk dist/ClipRadar-arm64-v8a.apk
+          cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk dist/ClipRadar-armeabi-v7a.apk
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClipRadar-apk
+          path: dist/*.apk
+
+      - name: Опубликовать в Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Clip Radar 1.0.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: dist/*.apk
+          body: |
+            **Какой файл скачать?**
+            - `ClipRadar-arm64-v8a.apk` — почти все телефоны с 2017 года (выбирайте его, если не уверены).
+            - `ClipRadar-armeabi-v7a.apk` — только для старых/очень бюджетных 32-битных телефонов.
+
+            Подпись: ${{ env.SIGNING_KIND == 'permanent' && 'постоянный ключ ✅' || 'временный ключ ⚠️ (добавьте секреты, см. README)' }}
+            Ветка: `${{ github.ref_name }}`, коммит `${{ github.sha }}`
