@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 rootProject.name = "ClipRadar"
 include(":app")
 include(":core")
+include(":tools")

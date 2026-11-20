@@ -84,7 +84,7 @@ object BoundaryPicker {
 
         // 1) Самая сильная точка рядом с тем местом, где сработал детектор.
         val p0 = ctx.peakSec.coerceIn(0.0, d)
-        val peak = sig.argMaxActivity(p0 - 8, p0 + 5) ?: p0
+        val peak = sig.argMaxActivity(p0 - 8, p0 + 5, p0) ?: p0
 
         // 2) Когда началась реакция (onset).
         val onset = sig.onset(peak, cfg.chatDelaySec)
@@ -370,10 +370,20 @@ object BoundaryPicker {
         fun slot(t: Double) = (t / STEP).toInt().coerceIn(0, n - 1)
         fun time(i: Int) = i * STEP
 
-        fun argMaxActivity(from: Double, to: Double): Double? {
+        /**
+         * Самая сильная точка рядом с детектором. При равной «активности» побеждает то, что громче
+         * (без ограничения сверху) и ближе к месту срабатывания детектора [near].
+         */
+        fun argMaxActivity(from: Double, to: Double, near: Double = (from + to) / 2): Double? {
             var best = -1
+            var bestKey = Double.NEGATIVE_INFINITY
             for (i in slot(max(0.0, from))..slot(min(d, to))) {
-                if (best < 0 || activity[i] > activity[best] + 1e-9) best = i
+                val chat = chatRatio?.get(i) ?: 0.0
+                val key = activity[i] * 1000 + loudEx[i] + chat - kotlin.math.abs(time(i) - near) * 0.01
+                if (key > bestKey) {
+                    bestKey = key
+                    best = i
+                }
             }
             if (best < 0 || activity[best] <= 0.0) return null
             return time(best) + STEP / 2
@@ -455,14 +465,20 @@ object BoundaryPicker {
 
 /** Объединение близких моментов и поиск дублей. */
 object MomentMerger {
-    /** Группы моментов, между которыми меньше [gapSec] секунд. Возвращает объединённые отрезки и номера моментов. */
-    fun merge(ranges: List<TimeRange>, gapSec: Double = 20.0): List<Pair<TimeRange, List<Int>>> {
+    /**
+     * Группы моментов, между которыми меньше [gapSec] секунд. Два момента объединяются всегда, а третий и
+     * дальше — только пока группа не длиннее [maxSpanSec] (иначе цепочка слабых моментов склеилась бы
+     * в один огромный). Возвращает отрезки и номера моментов.
+     */
+    fun merge(ranges: List<TimeRange>, gapSec: Double = 20.0, maxSpanSec: Double = 60.0): List<Pair<TimeRange, List<Int>>> {
         val order = ranges.indices.sortedBy { ranges[it].startSec }
         val out = ArrayList<Pair<TimeRange, MutableList<Int>>>()
         for (i in order) {
             val r = ranges[i]
             val last = out.lastOrNull()
-            if (last != null && r.startSec - last.first.endSec < gapSec) {
+            // Два близких момента объединяем всегда; дальше группа растёт, только пока она не длиннее maxSpanSec.
+            val fits = last != null && (last.second.size == 1 || max(last.first.endSec, r.endSec) - last.first.startSec <= maxSpanSec)
+            if (last != null && r.startSec - last.first.endSec < gapSec && fits) {
                 out[out.lastIndex] = TimeRange(last.first.startSec, max(last.first.endSec, r.endSec)) to last.second.apply { add(i) }
             } else {
                 out += r to mutableListOf(i)

@@ -1,0 +1,73 @@
+# Автотесты на эмуляторе Android: настоящий рендер Media3 (нет ли чёрных полей, вебка сверху,
+# субтитры в нижней трети), распознавание речи whisper.cpp на устройстве, перенос старой базы.
+name: Device tests
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  workflow_dispatch:
+
+concurrency:
+  group: device-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Тестовые файлы (видео 16:9 и образец речи)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          mkdir -p app/src/androidTest/assets
+          # Оранжевый фон, белый прямоугольник слева сверху («вебка»), зелёный справа снизу, синий двигается.
+          ffmpeg -loglevel error -y -f lavfi -i "color=c=0xFF8C00:s=1280x720:r=30:d=6" -f lavfi -i "sine=frequency=440:duration=6" \
+            -vf "drawbox=x=40:y=40:w=260:h=200:color=white:t=fill,drawbox=x=900:y=500:w=300:h=180:color=0x00C000:t=fill,drawbox=x='mod(t*200,1100)':y=300:w=80:h=80:color=blue:t=fill" \
+            -c:v libx264 -pix_fmt yuv420p -g 30 -c:a aac -shortest app/src/androidTest/assets/sample.mp4
+          cp third_party/whisper.cpp/samples/jfk.wav app/src/androidTest/assets/
+
+      - name: Включить ускорение эмулятора (KVM)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Собрать приложение и тесты под x86_64
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PtestAbi=x86_64 --stacktrace
+
+      - name: Запустить тесты на эмуляторе
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          ram-size: 4096M
+          disk-size: 6G
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            ./gradlew :app:connectedDebugAndroidTest -PtestAbi=x86_64 --stacktrace || touch tests-failed
+            mkdir -p test-output && adb pull /sdcard/Android/data/app.clipradar/files/test-output/. test-output/ || true
+            adb logcat -d -s ClipRadarTest:I ClipRadarWhisper:* Whisper:* AndroidRuntime:E > test-output/logcat.txt || true
+            test ! -f tests-failed
+
+      - name: Сохранить результаты (кадры клипов, отчёты)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-test-output
+          path: |
+            test-output
+            app/build/reports/androidTests
+            app/build/outputs/androidTest-results

@@ -73,7 +73,7 @@ data class MomentEntity(
 /** Настройки для конкретного стримера/канала (подстройка по кнопкам «Хороший/плохой»). */
 @Entity(tableName = "channel_prefs")
 data class ChannelPrefsEntity(
-    @PrimaryKey val key: String,
+    @PrimaryKey val channelKey: String,
     @ColumnInfo(defaultValue = "0") val thresholdAdjust: Int = 0,
     @ColumnInfo(defaultValue = "0") val good: Int = 0,
     @ColumnInfo(defaultValue = "0") val bad: Int = 0,
@@ -154,8 +154,8 @@ interface StreamerDao {
 
 @Dao
 interface ChannelPrefsDao {
-    @Query("SELECT * FROM channel_prefs WHERE key = :key")
-    suspend fun get(key: String): ChannelPrefsEntity?
+    @Query("SELECT * FROM channel_prefs WHERE channelKey = :channelKey")
+    suspend fun get(channelKey: String): ChannelPrefsEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(p: ChannelPrefsEntity)
@@ -187,9 +187,9 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE moments ADD COLUMN feedback INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE moments ADD COLUMN details TEXT")
                 db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `channel_prefs` (`key` TEXT NOT NULL, " +
+                    "CREATE TABLE IF NOT EXISTS `channel_prefs` (`channelKey` TEXT NOT NULL, " +
                         "`thresholdAdjust` INTEGER NOT NULL DEFAULT 0, `good` INTEGER NOT NULL DEFAULT 0, " +
-                        "`bad` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`key`))",
+                        "`bad` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`channelKey`))",
                 )
             }
         }

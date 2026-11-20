@@ -150,6 +150,35 @@ class BoundariesTest {
     }
 
     @Test
+    fun peakPrefersTheRealReactionOverEarlierLoudSpeech() {
+        // Речь 30–45 с громче тишины, но настоящая реакция (крик) 50–56 с ещё громче.
+        val loud = (0 until 240).map { i ->
+            val t = i * 0.5
+            when {
+                t in 50.0..56.0 -> -4.0
+                t in 30.0..45.0 -> -20.0
+                else -> -40.0
+            }
+        }
+        val words = phrase(30.0, "so", "i", "was", "walking", "home.") + phrase(48.0, "wait", "what", "oh", "my", "god", "no", "way.") +
+            phrase(57.5, "that", "was", "insane", "haha.")
+        val b = BoundaryPicker.pick(MomentContext(durationSec = 120.0, peakSec = 52.0, words = words, loudnessDb = loud))
+        assertTrue(b.peak in 50.0..56.5, "peak=${b.peak}")
+        assertTrue(b.end > 56.0, "clip must include the reaction: end=${b.end} (${b.endReason})")
+        assertTrue(b.start in 47.0..50.0, "start=${b.start} (${b.startReason})")
+    }
+
+    @Test
+    fun mergeDoesNotChainIntoHugeGroups() {
+        // Слабые пики каждые 30 с: соседние ближе 20 с (окна ±10), но группа не длиннее 60 с.
+        val ranges = (0 until 8).map { k -> TimeRange(k * 30.0 - 10, k * 30.0 + 10) }
+        val groups = MomentMerger.merge(ranges)
+        assertTrue(groups.all { it.first.durationSec <= 80.0 + 1e-9 }, groups.toString()) // максимум 2 момента + 60 с
+        assertTrue(groups.none { it.second.size > 2 && it.first.durationSec > 60.0 + 1e-9 }, groups.toString())
+        assertTrue(groups.size >= 4)
+    }
+
+    @Test
     fun mergedRangeIsIncludedInBounds() {
         val words = phrase(40.0, "first", "thing.") + phrase(70.0, "second", "thing.")
         val ctx = MomentContext(

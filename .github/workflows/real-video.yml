@@ -1,0 +1,72 @@
+# Проверка умных границ на настоящих роликах YouTube: тот же код выбора границ (модуль core),
+# та же расшифровка речи whisper.cpp (модель tiny), кусок видео с запасом ±60 с.
+# Результат: отчёт (время начала/конца и почему) + превью клипов в артефакте.
+name: Real video test
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: Ссылки на ролики через пробел
+        required: false
+  push:
+    branches: [main, 'claude/**']
+    paths: ['core/src/main/**', 'tools/**', '.github/workflows/real-video.yml']
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DEFAULT_URLS: >-
+        https://www.youtube.com/watch?v=iG9CE55wbtY
+        https://www.youtube.com/watch?v=UF8uR6Z6KLc
+        https://www.youtube.com/watch?v=dQw4w9WgXcQ
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Инструменты (ffmpeg, yt-dlp)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          pip install -q -U yt-dlp
+
+      - name: Собрать whisper.cpp и скачать модель tiny
+        run: |
+          cmake -S third_party/whisper.cpp -B build-whisper -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF > /dev/null
+          cmake --build build-whisper -j 4 --target whisper-cli > /dev/null
+          mkdir -p models
+          curl -sSL -o models/ggml-tiny-q5_1.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin
+          ls -la models build-whisper/bin
+
+      - name: Собрать инструмент проверки (тот же код core)
+        run: ./gradlew :tools:installDist
+
+      - name: Проверить на роликах
+        env:
+          URLS: ${{ github.event.inputs.urls }}
+        run: tools/real-video-test.sh ${URLS:-$DEFAULT_URLS}
+
+      - name: Отчёт
+        if: always()
+        run: cat real-test/report.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-video-report
+          path: |
+            real-test/report.md
+            real-test/clip*.mp4
+            real-test/video*/bounds.json
+            real-test/video*/words.json
+            real-test/video*/peaks.json
+            real-test/video*/*.log
