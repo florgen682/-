@@ -28,8 +28,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Тестовые файлы (видео 16:9 и образец речи)
+        timeout-minutes: 8
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          if ! command -v ffmpeg > /dev/null; then
+            curl -sSL --retry 3 -o /tmp/ffmpeg.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz \
+              && mkdir -p /tmp/ffmpeg && tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1 \
+              && export PATH="/tmp/ffmpeg/bin:$PATH" \
+              || (sudo apt-get -o DPkg::Lock::Timeout=120 update -qq && sudo apt-get -o DPkg::Lock::Timeout=120 install -y -qq ffmpeg > /dev/null)
+          fi
           mkdir -p app/src/androidTest/assets
           # Оранжевый фон, белый прямоугольник слева сверху («вебка»), зелёный справа снизу, синий двигается.
           ffmpeg -loglevel error -y -f lavfi -i "color=c=0xFF8C00:s=1280x720:r=30:d=6" -f lavfi -i "sine=frequency=440:duration=6" \
