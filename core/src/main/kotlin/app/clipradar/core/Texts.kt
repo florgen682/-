@@ -88,15 +88,31 @@ object CaptionWriter {
         }
     }
 
-    /** Самые «значимые» слова расшифровки (часто повторяются, не служебные). */
+    private val extraStop = setOf(
+        "think", "want", "need", "said", "says", "look", "looks", "thing", "things", "something", "nothing",
+        "everything", "little", "maybe", "actually", "literally", "people", "really", "always", "never",
+        "about", "would", "could", "should", "there", "where", "which", "these", "those", "today", "kind",
+        "mean", "stuff", "sure", "still", "even", "just", "like", "much", "make", "made", "take", "come",
+        "listening", "sitting", "talking", "saying", "doing", "going", "getting",
+    )
+
+    /**
+     * Самые «значимые» слова расшифровки: часто повторяются, не служебные, без сокращений с апострофом.
+     * Слова с большой буквы не в начале фразы (имена, названия) ценятся выше.
+     */
     fun keywords(words: List<Word>, max: Int = 3): List<String> {
-        val counts = LinkedHashMap<String, Int>()
-        for (w in SpeechText.speech(words)) {
-            val t = w.text.lowercase().trim().trim { !it.isLetterOrDigit() }
-            if (t.length < 4 || t in stop || t.all { it.isDigit() }) continue
-            counts[t] = (counts[t] ?: 0) + 1
+        val score = LinkedHashMap<String, Int>()
+        val speech = SpeechText.speech(words)
+        for ((i, w) in speech.withIndex()) {
+            val raw = w.text.trim().trim { !it.isLetterOrDigit() }
+            if (raw.contains('\'') || raw.contains('’')) continue
+            val t = raw.lowercase()
+            if (t.length < 4 || t in stop || t in extraStop || t.all { it.isDigit() }) continue
+            val sentenceStart = i == 0 || speech[i - 1].text.trim().let { it.endsWith(".") || it.endsWith("?") || it.endsWith("!") }
+            val proper = raw.first().isUpperCase() && !sentenceStart
+            score[t] = (score[t] ?: 0) + if (proper) 3 else 1
         }
-        return counts.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenByDescending { it.key.length })
+        return score.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenByDescending { it.key.length })
             .take(max).map { it.key }
     }
 

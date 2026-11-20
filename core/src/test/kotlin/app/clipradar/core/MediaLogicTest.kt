@@ -55,6 +55,17 @@ class MediaLogicTest {
     }
 
     @Test
+    fun keywordsSkipContractionsAndPreferNames() {
+        var t = 0.0
+        val words = "so you're listening and you're like okay then Granny said where is Granny going you're crazy"
+            .split(" ").map { Word(it, t, t + 0.3).also { t += 0.4 } }
+        val kw = CaptionWriter.keywords(words)
+        assertEquals("granny", kw.first())
+        assertTrue(kw.none { it.contains("'") }, kw.toString())
+        assertTrue("listening" !in kw)
+    }
+
+    @Test
     fun longTitlesAreShortened() {
         val title = CaptionWriter.fit("Supercalifragilistic Streamer Name Lost It Over Something Very Long Indeed 😂", 60)
         assertTrue(title.length <= 60, title)
