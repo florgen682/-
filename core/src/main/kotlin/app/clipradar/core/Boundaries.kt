@@ -7,6 +7,21 @@ import kotlin.math.min
 /** Слово из расшифровки речи с таймкодами (секунды от начала окна). */
 data class Word(val text: String, val start: Double, val end: Double)
 
+/** Whisper иногда пишет не слова, а метки: [MUSIC], (laughs), ♪ … — это не речь. */
+object SpeechText {
+    private val noise = Regex("^\\s*([\\[(*♪♫].*[\\])*♪♫]|[♪♫]+)\\s*$")
+    private val reaction = Regex("laugh|applause|cheer|scream|gasp|clap|смех|аплодисмент|крик", RegexOption.IGNORE_CASE)
+
+    /** Метка вместо слова (музыка, смех, аплодисменты). */
+    fun isNoise(text: String): Boolean = noise.matches(text)
+
+    /** Метка реакции зрителей/стримера: смех, аплодисменты, крик. */
+    fun isReaction(text: String): Boolean = isNoise(text) && reaction.containsMatchIn(text)
+
+    /** Только настоящие слова. */
+    fun speech(words: List<Word>): List<Word> = words.filter { !isNoise(it.text) }
+}
+
 /**
  * Всё, что известно о моменте внутри «окна» исходника (секунды от начала окна).
  * Любой сигнал может отсутствовать — тогда он просто не учитывается.
@@ -78,8 +93,10 @@ object BoundaryPicker {
 
     fun pick(ctx: MomentContext, cfg: BoundsConfig = BoundsConfig()): ClipBounds {
         val d = max(ctx.durationSec, 1.0)
-        val words = ctx.words.filter { it.end > it.start && it.end > 0 && it.start < d }.sortedBy { it.start }
-        val sig = Signals(ctx.copy(durationSec = d), words)
+        val all = ctx.words.filter { it.end > it.start && it.end > 0 && it.start < d }.sortedBy { it.start }
+        // Метки вроде [MUSIC] — не речь (не границы фраз), а (laughs)/[cheering] — признак реакции.
+        val words = SpeechText.speech(all)
+        val sig = Signals(ctx.copy(durationSec = d), words, all.filter { SpeechText.isReaction(it.text) })
         val snap = Snapper(words, d)
 
         // 1) Самая сильная точка рядом с тем местом, где сработал детектор.
@@ -323,7 +340,7 @@ object BoundaryPicker {
         }
     }
 
-    private class Signals(ctx: MomentContext, private val words: List<Word>) {
+    private class Signals(ctx: MomentContext, private val words: List<Word>, reactions: List<Word> = emptyList()) {
         val d = ctx.durationSec
         val n = max(1, ceil(d / STEP).toInt())
         val sceneCuts = ctx.sceneCuts.filter { it in 0.0..d }.sorted()
@@ -350,8 +367,8 @@ object BoundaryPicker {
             } else {
                 null
             }
-            for (w in words) {
-                if (hypeSpeech.containsMatchIn(w.text)) {
+            for (w in words + reactions) {
+                if (hypeSpeech.containsMatchIn(w.text) || SpeechText.isReaction(w.text)) {
                     for (i in slot(w.start)..slot(w.end)) hype[i] = true
                 }
             }

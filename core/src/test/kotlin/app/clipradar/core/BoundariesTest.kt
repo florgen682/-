@@ -169,6 +169,23 @@ class BoundariesTest {
     }
 
     @Test
+    fun whisperNoiseTagsAreNotSpeech() {
+        assertTrue(SpeechText.isNoise("[MUSIC]"))
+        assertTrue(SpeechText.isNoise("(laughs)"))
+        assertTrue(SpeechText.isNoise("♪"))
+        assertTrue(!SpeechText.isNoise("music"))
+        assertTrue(SpeechText.isReaction("[LAUGHTER]") && SpeechText.isReaction("(applause)"))
+        assertTrue(!SpeechText.isReaction("[MUSIC]"))
+        // Окно, где вся «речь» — метки [MUSIC]: границы не должны цепляться за них как за фразы.
+        val tags = (0 until 40).map { k -> Word("[MUSIC]", k * 3.0, k * 3.0 + 2.9) }
+        val b = BoundaryPicker.pick(
+            MomentContext(durationSec = 120.0, peakSec = 60.0, words = tags, loudnessDb = (0 until 240).map { if (it in 116..124) -5.0 else -20.0 }),
+        )
+        assertTrue(!b.startReason.contains("фраз"), b.startReason)
+        assertTrue(CaptionWriter.keywords(tags).isEmpty())
+    }
+
+    @Test
     fun mergeDoesNotChainIntoHugeGroups() {
         // Слабые пики каждые 30 с: соседние ближе 20 с (окна ±10), но группа не длиннее 60 с.
         val ranges = (0 until 8).map { k -> TimeRange(k * 30.0 - 10, k * 30.0 + 10) }

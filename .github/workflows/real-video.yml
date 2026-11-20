@@ -18,9 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
+      # YouTube часто требует «подтвердить, что вы не робот» с серверов GitHub — поэтому в основном записи Twitch.
       DEFAULT_URLS: >-
-        https://www.youtube.com/watch?v=iG9CE55wbtY
-        https://www.youtube.com/watch?v=UF8uR6Z6KLc
+        twitch:xqc
+        twitch:caseoh_
+        twitch:summit1g
         https://www.youtube.com/watch?v=dQw4w9WgXcQ
     steps:
       - uses: actions/checkout@v4

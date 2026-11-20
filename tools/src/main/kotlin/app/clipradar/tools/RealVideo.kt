@@ -29,6 +29,7 @@ fun main(args: Array<String>) {
     System.setOut(java.io.PrintStream(java.io.FileOutputStream(java.io.FileDescriptor.out), true, "UTF-8"))
     when (args.firstOrNull()) {
         "peaks" -> peaks(File(args[1]))
+        "audio-peaks" -> audioPeaks(File(args[1]), args[2].toDouble(), args.getOrNull(3)?.toDouble())
         "bounds" -> bounds(args)
         else -> error("usage: peaks <meta.json> | bounds <wav> <words.json> <scenes.txt> <peak> [mustStart mustEnd]")
     }
@@ -68,6 +69,38 @@ private fun peaks(meta: File) {
                 .put("members", members.size)
                 .put("mustStart", if (members.size > 1) members.minOf { it.timeSec } - 3 else JSONObject.NULL)
                 .put("mustEnd", if (members.size > 1) members.maxOf { it.timeSec } + 3 else JSONObject.NULL),
+        )
+    }
+    println(out.toString(2))
+}
+
+/** Записи без графика пересмотров (Twitch): пики по громкости, как в приложении. [offset] — с какой секунды записи начинается WAV. */
+private fun audioPeaks(wav: File, offset: Double, duration: Double?) {
+    val half = loudness(wav)
+    val perSec = half.chunked(2).map { it.average() }
+    val found = app.clipradar.core.Loudness.loudestPeaks(perSec, 8, 30.0)
+    val groups = MomentMerger.merge(found.map { TimeRange(it.timeSec - 10, it.timeSec + 10) }, 20.0)
+        .map { g ->
+            val members = g.second.map { found[it] }
+            val best = members.maxBy { it.value }
+            val jump = app.clipradar.core.Loudness.jumpDb(perSec, best.timeSec)
+            val score = InterestScorer.score(app.clipradar.core.MomentSignals(audioJumpDb = jump)).score
+            Triple(g, members, best) to score
+        }
+        .sortedByDescending { it.second }
+        .take(5)
+    val out = JSONArray()
+    for ((t, score) in groups) {
+        val (g, members, best) = t
+        val winStart = maxOf(0.0, offset + g.first.startSec + 10 - 60)
+        val winEnd = offset + g.first.endSec - 10 + 60
+        out.put(
+            JSONObject()
+                .put("peak", offset + best.timeSec).put("score", score).put("winStart", winStart)
+                .put("winEnd", if (duration != null) minOf(duration, winEnd) else winEnd)
+                .put("members", members.size)
+                .put("mustStart", if (members.size > 1) offset + members.minOf { it.timeSec } - 3 else JSONObject.NULL)
+                .put("mustEnd", if (members.size > 1) offset + members.maxOf { it.timeSec } + 3 else JSONObject.NULL),
         )
     }
     println(out.toString(2))

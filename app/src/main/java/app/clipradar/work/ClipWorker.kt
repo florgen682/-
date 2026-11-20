@@ -363,7 +363,7 @@ class ClipWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val streamer = d.streamer ?: m.channel
         val platform = if (m.isLive || m.sourceUrl.contains("twitch")) "twitch" else "youtube"
         val ai = if (apiKey.isNotBlank()) {
-            AiCaptioner.generate(apiKey, words.joinToString(" ") { it.text }, streamer, d.channelUrl, d.game, platform)
+            AiCaptioner.generate(apiKey, app.clipradar.core.SpeechText.speech(words).joinToString(" ") { it.text }, streamer, d.channelUrl, d.game, platform)
         } else {
             null
         }

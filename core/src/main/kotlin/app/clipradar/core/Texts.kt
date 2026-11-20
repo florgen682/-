@@ -91,7 +91,7 @@ object CaptionWriter {
     /** Самые «значимые» слова расшифровки (часто повторяются, не служебные). */
     fun keywords(words: List<Word>, max: Int = 3): List<String> {
         val counts = LinkedHashMap<String, Int>()
-        for (w in words) {
+        for (w in SpeechText.speech(words)) {
             val t = w.text.lowercase().trim().trim { !it.isLetterOrDigit() }
             if (t.length < 4 || t in stop || t.all { it.isDigit() }) continue
             counts[t] = (counts[t] ?: 0) + 1

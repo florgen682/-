@@ -11,25 +11,45 @@ REPORT="$OUT/report.md"
 echo "# Clip Radar — проверка на реальных роликах" > "$REPORT"
 echo "" >> "$REPORT"
 n=0
-for URL in "$@"; do
+for SRC in "$@"; do
   n=$((n+1))
   D="$OUT/video$n"; mkdir -p "$D"
-  echo "== $URL"
-  if ! yt-dlp --js-runtimes node -J --skip-download "$URL" > "$D/meta.json" 2> "$D/yt-dlp.log"; then
-    echo "## $n. $URL" >> "$REPORT"; echo "yt-dlp не смог получить данные: $(tail -1 "$D/yt-dlp.log")" >> "$REPORT"; continue
+  URL="$SRC"
+  # twitch:<ник> — самая свежая запись стрима этого канала.
+  if [[ "$SRC" == twitch:* ]]; then
+    NICK="${SRC#twitch:}"
+    VID=$(yt-dlp --flat-playlist -I 1 --print id "https://www.twitch.tv/$NICK/videos?filter=archives&sort=time" 2>> "$D/yt-dlp.log" | head -1)
+    URL="https://www.twitch.tv/videos/${VID#v}"
   fi
-  TITLE=$(python3 -c "import json,sys;print(json.load(open('$D/meta.json')).get('title',''))")
+  echo "== $URL"
+  if ! yt-dlp --js-runtimes node -J --skip-download "$URL" > "$D/meta.json" 2>> "$D/yt-dlp.log"; then
+    echo "## $n. $SRC" >> "$REPORT"; echo "yt-dlp не смог получить данные: $(tail -1 "$D/yt-dlp.log")" >> "$REPORT"; echo "" >> "$REPORT"; continue
+  fi
+  TITLE=$(python3 -c "import json;d=json.load(open('$D/meta.json'));print(d.get('uploader') or '', '—', d.get('title',''))")
+  DUR=$(python3 -c "import json;print(json.load(open('$D/meta.json')).get('duration') or 0)")
   "$TOOL" peaks "$D/meta.json" > "$D/peaks.json"
   COUNT=$(python3 -c "import json;print(len(json.load(open('$D/peaks.json'))))")
   echo "## $n. $TITLE" >> "$REPORT"
-  echo "$URL — найдено пиков графика пересмотров: $COUNT" >> "$REPORT"; echo "" >> "$REPORT"
-  if [ "$COUNT" = "0" ]; then echo "У ролика нет графика пересмотров — пропускаю." >> "$REPORT"; continue; fi
+  if [ "$COUNT" = "0" ]; then
+    # Графика пересмотров нет (записи Twitch) — ищем громкие места в отрезке 10:00–25:00, как приложение по звуку.
+    A0=600; A1=1500
+    if python3 -c "import sys; sys.exit(0 if float('$DUR') < 1600 else 1)"; then A0=0; A1=$DUR; fi
+    yt-dlp --js-runtimes node -f "Audio_Only/ba/worst" --download-sections "*${A0}-${A1}" -o "$D/scan.%(ext)s" "$URL" >> "$D/yt-dlp.log" 2>&1
+    SCAN=$(ls "$D"/scan.* 2>/dev/null | head -1)
+    if [ -z "$SCAN" ]; then echo "Звук для поиска пиков не скачался: $(tail -1 "$D/yt-dlp.log")" >> "$REPORT"; echo "" >> "$REPORT"; continue; fi
+    ffmpeg -loglevel error -y -i "$SCAN" -ar 16000 -ac 1 -c:a pcm_s16le "$D/scan.wav"
+    "$TOOL" audio-peaks "$D/scan.wav" "$A0" "$DUR" > "$D/peaks.json"
+    echo "$URL — графика пересмотров нет, пики по громкости в отрезке $((A0/60)):00–$((A1/60)):00" >> "$REPORT"
+  else
+    echo "$URL — найдено пиков графика пересмотров: $COUNT" >> "$REPORT"
+  fi
+  echo "" >> "$REPORT"
   read -r PEAK WS WE MS ME SCORE <<< "$(python3 -c "
 import json; p=json.load(open('$D/peaks.json'))[0]
 ms=p['mustStart']; me=p['mustEnd']
 print(p['peak'], p['winStart'], p['winEnd'], '-' if ms is None else ms-p['winStart'], '-' if me is None else me-p['winStart'], p['score'])")"
   # Кусок видео с запасом ±60 с вокруг лучшего пика (как в приложении).
-  yt-dlp --js-runtimes node -f "bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]/b[height<=720]/b" \
+  yt-dlp --js-runtimes node -f "bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]/b[height<=720][vcodec^=avc1]/b[height<=720]/b" \
     --download-sections "*${WS}-${WE}" --merge-output-format mp4 -o "$D/section.%(ext)s" "$URL" >> "$D/yt-dlp.log" 2>&1
   SEC=$(ls "$D"/section.* 2>/dev/null | head -1)
   if [ -z "$SEC" ]; then echo "Кусок видео не скачался: $(tail -2 "$D/yt-dlp.log" | tr '\n' ' ')" >> "$REPORT"; continue; fi
@@ -45,7 +65,7 @@ import json, sys
 d, ws, peak, score = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), sys.argv[4]
 b = json.load(open(f"{d}/bounds.json"))
 fmt = lambda s: f"{int(s//60)}:{s%60:05.2f}"
-print(f"- Пик графика: **{fmt(peak)}** (оценка {score}); скачано окно {fmt(ws)}–{fmt(ws+120)}")
+print(f"- Найденный пик: **{fmt(peak)}** (оценка {score}); скачан кусок {fmt(ws)}–{fmt(ws+120)} (запас ±60 с)")
 print(f"- Клип: **{fmt(ws+b['start'])} → {fmt(ws+b['end'])}** (длина {b['length']:.1f} с)")
 print(f"- Начало: {b['startReason']}  \n  на границе: {b['startContext']}")
 print(f"- Конец: {b['endReason']}  \n  на границе: {b['endContext']}")
