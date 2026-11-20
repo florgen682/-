@@ -1,7 +1,7 @@
 package app.clipradar.live
 
 import android.content.Context
-import android.util.Log
+import app.clipradar.util.AppLog
 import app.clipradar.core.ChatLine
 import app.clipradar.core.IrcParser
 import app.clipradar.core.Sources
@@ -43,6 +43,7 @@ data class LiveInfo(
     val streamId: String?,
     val title: String?,
     val startedAt: Long?,
+    val game: String? = null,
 )
 
 /** Проверка, идёт ли эфир. Сначала быстрый запрос к Twitch, если не вышло — через yt-dlp. */
@@ -54,7 +55,7 @@ object TwitchApi {
     suspend fun check(context: Context, logins: List<String>): Map<String, LiveInfo> {
         if (logins.isEmpty()) return emptyMap()
         val fast = runCatching { checkGql(logins) }
-            .onFailure { Log.w(TAG, "GQL не ответил: ${it.message}") }
+            .onFailure { AppLog.w(TAG, "GQL не ответил: ${it.message}") }
             .getOrNull()
         if (fast != null && fast.size == logins.size) return fast
         // Запасной путь — yt-dlp (медленнее, но надёжно).
@@ -68,7 +69,7 @@ object TwitchApi {
 
     private suspend fun checkGql(logins: List<String>): Map<String, LiveInfo> = withContext(Dispatchers.IO) {
         val list = JSONArray(logins).toString()
-        val query = "query { users(logins: $list) { login displayName stream { id title createdAt } } }"
+        val query = "query { users(logins: $list) { login displayName stream { id title createdAt game { name } } } }"
         val body = JSONObject().put("query", query).toString().toRequestBody("application/json".toMediaType())
         val req = Request.Builder()
             .url("https://gql.twitch.tv/gql")
@@ -91,6 +92,7 @@ object TwitchApi {
                     streamId = stream?.optString("id"),
                     title = stream?.optString("title"),
                     startedAt = stream?.optString("createdAt")?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() },
+                    game = stream?.optJSONObject("game")?.optString("name")?.takeIf { it.isNotBlank() },
                 )
             }
             // Канал, которого нет на Twitch, просто отсутствует в ответе — считаем «не в эфире».
@@ -107,7 +109,7 @@ object TwitchApi {
         if ("не в эфире" in msg || "not currently live" in msg || "offline" in msg) {
             LiveInfo(login, login, false, null, null, null)
         } else {
-            Log.w(TAG, "Не удалось проверить $login", e)
+            AppLog.w(TAG, "Не удалось проверить $login", e)
             null
         }
     }
@@ -156,7 +158,7 @@ class TwitchChat(
 
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                         connected = false
-                        Log.w("TwitchChat", "Чат отключился: ${t.message}")
+                        AppLog.w("TwitchChat", "Чат отключился: ${t.message}")
                         closed.complete(Unit)
                     }
                 },

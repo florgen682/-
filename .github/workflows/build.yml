@@ -25,6 +25,8 @@ jobs:
       VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true   # whisper.cpp (распознавание речи)
 
       - uses: actions/setup-java@v4
         with:

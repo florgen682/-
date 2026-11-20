@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
@@ -67,7 +69,7 @@ import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 
 @Composable
-fun MomentsScreen(vm: MainViewModel, initialLink: String?, onNeedBattery: () -> Unit) {
+fun MomentsScreen(vm: MainViewModel, initialLink: String?, onNeedBattery: () -> Unit, onOpenMoment: (Long) -> Unit) {
     val moments by vm.moments.collectAsState()
     val settings by vm.settings.collectAsState()
     val sessions by vm.sessions.collectAsState()
@@ -188,7 +190,7 @@ fun MomentsScreen(vm: MainViewModel, initialLink: String?, onNeedBattery: () -> 
         }
 
         items(moments, key = { it.id }) { m ->
-            MomentCard(m, settings.scoreThreshold, vm)
+            MomentCard(m, settings.scoreThreshold, vm) { onOpenMoment(m.id) }
         }
     }
 
@@ -214,16 +216,17 @@ private fun statusText(status: String) = when (status) {
     MomentStatus.CUTTING -> "режется…"
     MomentStatus.READY -> "готов"
     MomentStatus.FAILED -> "ошибка"
+    MomentStatus.REJECTED -> "отброшен"
     else -> status
 }
 
 @Composable
-private fun MomentCard(m: MomentEntity, threshold: Int, vm: MainViewModel) {
+private fun MomentCard(m: MomentEntity, threshold: Int, vm: MainViewModel, onOpen: () -> Unit) {
     val context = LocalContext.current
     val progress by ClipProgress.state.collectAsState()
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Thumbnail(m)
+            Box(Modifier.clickable(onClick = onOpen)) { Thumbnail(m) }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(m.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -243,7 +246,7 @@ private fun MomentCard(m: MomentEntity, threshold: Int, vm: MainViewModel) {
                 progress[m.id]?.takeIf { m.status == MomentStatus.CUTTING }?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = Violet)
                 }
-                m.error?.takeIf { m.status == MomentStatus.FAILED }?.let {
+                m.error?.takeIf { m.status == MomentStatus.FAILED || m.status == MomentStatus.REJECTED }?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = Hot)
                 }
             }
@@ -259,12 +262,14 @@ private fun MomentCard(m: MomentEntity, threshold: Int, vm: MainViewModel) {
                 }
             }
             if (m.status != MomentStatus.QUEUED && m.status != MomentStatus.CUTTING) {
-                TextButton(onClick = { vm.cut(m) }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(if (m.status == MomentStatus.READY || m.status == MomentStatus.FAILED) "Нарезать заново" else "Нарезать")
+                IconButton(onClick = { vm.cut(m) }) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = if (m.status == MomentStatus.READY || m.status == MomentStatus.FAILED) "Нарезать заново" else "Нарезать",
+                    )
                 }
             }
+            IconButton(onClick = onOpen) { Icon(Icons.Filled.Edit, contentDescription = "Править") }
             IconButton(onClick = { vm.delete(m) }) {
                 Icon(Icons.Filled.Delete, contentDescription = "Удалить")
             }

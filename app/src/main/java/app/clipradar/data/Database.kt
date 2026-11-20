@@ -1,6 +1,7 @@
 package app.clipradar.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -11,6 +12,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 /** Статусы момента. */
@@ -21,6 +24,7 @@ object MomentStatus {
     const val CUTTING = "CUTTING"   // режется прямо сейчас
     const val READY = "READY"       // клип готов
     const val FAILED = "FAILED"     // ошибка
+    const val REJECTED = "REJECTED" // отброшен: много тишины / стоп-кадра
 }
 
 @Entity(tableName = "moments")
@@ -50,6 +54,29 @@ data class MomentEntity(
     val clipUri: String? = null,
     val clipSize: Long = 0,
     val error: String? = null,
+    /** Выбранные границы клипа (секунды внутри файла-исходника). */
+    @ColumnInfo(defaultValue = "0") val clipStartSec: Double = 0.0,
+    @ColumnInfo(defaultValue = "0") val clipEndSec: Double = 0.0,
+    /** С какой секунды оригинального видео начинается файл-исходник (для готовых видео). */
+    @ColumnInfo(defaultValue = "0") val sourceStartSec: Double = 0.0,
+    /** Где внутри исходника пик (секунды), −1 — неизвестно. */
+    @ColumnInfo(defaultValue = "-1") val peakInSource: Double = -1.0,
+    /** Границы, выставленные вручную в редакторе. */
+    val manualStartSec: Double? = null,
+    val manualEndSec: Double? = null,
+    /** Оценка пользователя: 1 — хороший момент, −1 — плохой, 0 — нет оценки. */
+    @ColumnInfo(defaultValue = "0") val feedback: Int = 0,
+    /** Подробности в JSON: расшифровка, причины границ, подписи для публикации, чат. */
+    val details: String? = null,
+)
+
+/** Настройки для конкретного стримера/канала (подстройка по кнопкам «Хороший/плохой»). */
+@Entity(tableName = "channel_prefs")
+data class ChannelPrefsEntity(
+    @PrimaryKey val key: String,
+    @ColumnInfo(defaultValue = "0") val thresholdAdjust: Int = 0,
+    @ColumnInfo(defaultValue = "0") val good: Int = 0,
+    @ColumnInfo(defaultValue = "0") val bad: Int = 0,
 )
 
 @Entity(tableName = "streamers")
@@ -81,6 +108,12 @@ interface MomentDao {
 
     @Query("SELECT * FROM moments WHERE status IN ('QUEUED','CUTTING')")
     suspend fun unfinished(): List<MomentEntity>
+
+    @Query("SELECT * FROM moments WHERE id = :id")
+    fun observe(id: Long): Flow<MomentEntity?>
+
+    @Query("SELECT * FROM moments WHERE (sourceUrl = :sourceUrl OR (channel IS NOT NULL AND channel = :channel)) AND id != :exceptId")
+    suspend fun sameSource(sourceUrl: String, channel: String?, exceptId: Long): List<MomentEntity>
 
     @Insert
     suspend fun insert(m: MomentEntity): Long
@@ -119,17 +152,51 @@ interface StreamerDao {
     suspend fun delete(login: String)
 }
 
-@Database(entities = [MomentEntity::class, StreamerEntity::class], version = 1, exportSchema = false)
+@Dao
+interface ChannelPrefsDao {
+    @Query("SELECT * FROM channel_prefs WHERE key = :key")
+    suspend fun get(key: String): ChannelPrefsEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(p: ChannelPrefsEntity)
+}
+
+@Database(
+    entities = [MomentEntity::class, StreamerEntity::class, ChannelPrefsEntity::class],
+    version = 2,
+    exportSchema = false,
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun moments(): MomentDao
     abstract fun streamers(): StreamerDao
+    abstract fun channelPrefs(): ChannelPrefsDao
 
     companion object {
         @Volatile
         private var instance: AppDatabase? = null
 
+        /** Версия 1 → 2: новые поля для умных границ, ручной правки и подписей. История сохраняется. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE moments ADD COLUMN clipStartSec REAL NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE moments ADD COLUMN clipEndSec REAL NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE moments ADD COLUMN sourceStartSec REAL NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE moments ADD COLUMN peakInSource REAL NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE moments ADD COLUMN manualStartSec REAL")
+                db.execSQL("ALTER TABLE moments ADD COLUMN manualEndSec REAL")
+                db.execSQL("ALTER TABLE moments ADD COLUMN feedback INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE moments ADD COLUMN details TEXT")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `channel_prefs` (`key` TEXT NOT NULL, " +
+                        "`thresholdAdjust` INTEGER NOT NULL DEFAULT 0, `good` INTEGER NOT NULL DEFAULT 0, " +
+                        "`bad` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`key`))",
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "clipradar.db")
+                .addMigrations(MIGRATION_1_2)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { instance = it }

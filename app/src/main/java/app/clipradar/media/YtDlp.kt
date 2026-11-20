@@ -1,7 +1,7 @@
 package app.clipradar.media
 
 import android.content.Context
-import android.util.Log
+import app.clipradar.util.AppLog
 import app.clipradar.core.HeatmapSegment
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
@@ -30,6 +30,7 @@ data class VideoMeta(
     val uploader: String?,
     val heatmap: List<HeatmapSegment>,
     val webpageUrl: String,
+    val channelUrl: String? = null,
 )
 
 /** Понятная ошибка, которую можно показать пользователю. */
@@ -107,6 +108,7 @@ object YtDlp {
             uploader = json.optString("uploader").takeIf { it.isNotBlank() },
             heatmap = heat.filter { !it.value.isNaN() },
             webpageUrl = json.optString("webpage_url", url),
+            channelUrl = (json.optString("channel_url").ifBlank { json.optString("uploader_url") }).takeIf { it.isNotBlank() },
         )
     }
 
@@ -197,7 +199,7 @@ object YtDlp {
     /** Переводит техническую ошибку yt-dlp в понятный текст. */
     fun explain(e: Throwable): String {
         val msg = (e.message ?: e.toString())
-        Log.w(TAG, "yt-dlp error: $msg")
+        AppLog.w(TAG, "yt-dlp: ${msg.take(300)}")
         val lower = msg.lowercase(Locale.ROOT)
         return when {
             "is not currently live" in lower || "offline" in lower -> "Канал сейчас не в эфире"

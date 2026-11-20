@@ -1,6 +1,6 @@
 package app.clipradar.live
 
-import android.util.Log
+import app.clipradar.util.AppLog
 import app.clipradar.core.HlsParser
 import app.clipradar.core.NewSegment
 import app.clipradar.core.SegmentRing
@@ -40,7 +40,7 @@ class HlsRecorder(
         var url = try {
             resolveUrl()
         } catch (e: Exception) {
-            Log.w(TAG, "Не получил ссылку на поток", e)
+            AppLog.w(TAG, "Не получил ссылку на поток", e)
             return RecordEnd.NOT_LIVE
         }
         var lastSeq = -1L
@@ -49,20 +49,25 @@ class HlsRecorder(
             val text = try {
                 fetchText(url)
             } catch (e: IOException) {
+                // Эфир оборвался или пропал интернет: переподключаемся до 10 раз с паузой.
+                // Буфер при этом не трогаем — уже найденные моменты доделаются.
                 failures++
-                Log.w(TAG, "Плейлист не загрузился ($failures): ${e.message}")
-                if (failures % 3 == 0) {
-                    // Пробуем получить новую ссылку. Если эфира больше нет — заканчиваем.
+                AppLog.w(TAG, "Плейлист не загрузился (попытка $failures из $MAX_RECONNECTS): ${e.message}")
+                if (failures > MAX_RECONNECTS) return RecordEnd.FAILED
+                delay((3_000L * failures).coerceAtMost(20_000))
+                if (failures >= 2) {
                     url = try {
                         resolveUrl()
                     } catch (e2: Exception) {
-                        return RecordEnd.NOT_LIVE
+                        val msg = e2.message?.lowercase() ?: ""
+                        if ("не в эфире" in msg || "not currently live" in msg || "offline" in msg) return RecordEnd.NOT_LIVE
+                        AppLog.w(TAG, "Новая ссылка на поток не получена: ${e2.message}")
+                        url
                     }
                 }
-                if (failures > 12) return RecordEnd.FAILED
-                delay(2_000)
                 continue
             }
+            if (failures > 0) AppLog.i(TAG, "Связь с эфиром восстановлена после $failures попыток")
             failures = 0
             val playlist = HlsParser.parse(text, url)
             if (playlist.isMaster) {
@@ -83,7 +88,7 @@ class HlsRecorder(
                     batch += NewSegment(seg.sequence, file.absolutePath, (seg.durationSec * 1000).toLong())
                     segmentsDownloaded++
                 } catch (e: IOException) {
-                    Log.w(TAG, "Кусок ${seg.sequence} не скачался: ${e.message}")
+                    AppLog.w(TAG, "Кусок ${seg.sequence} не скачался: ${e.message}")
                     file.delete()
                 }
             }
@@ -117,5 +122,6 @@ class HlsRecorder(
 
     companion object {
         private const val TAG = "HlsRecorder"
+        private const val MAX_RECONNECTS = 10
     }
 }

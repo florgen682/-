@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +18,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -44,6 +46,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.core.content.ContextCompat
 import app.clipradar.core.Sources
 import app.clipradar.ui.ClipRadarTheme
+import app.clipradar.ui.ClipScreen
+import app.clipradar.ui.JournalScreen
 import app.clipradar.ui.MainViewModel
 import app.clipradar.ui.MomentsScreen
 import app.clipradar.ui.SettingsScreen
@@ -69,6 +73,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             ClipRadarTheme {
                 var tab by rememberSaveable { mutableIntStateOf(0) }
+                var openMoment by rememberSaveable { mutableStateOf<Long?>(null) }
+                BackHandler(enabled = openMoment != null) { openMoment = null }
                 val snackbar = remember { SnackbarHostState() }
                 LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
 
@@ -81,9 +87,10 @@ class MainActivity : ComponentActivity() {
                     },
                     bottomBar = {
                         NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                            NavigationBarItem(tab == 0, { tab = 0 }, { Icon(Icons.Filled.Home, null) }, label = { Text("Моменты") })
-                            NavigationBarItem(tab == 1, { tab = 1 }, { Icon(Icons.Filled.Person, null) }, label = { Text("Стримеры") })
-                            NavigationBarItem(tab == 2, { tab = 2 }, { Icon(Icons.Filled.Settings, null) }, label = { Text("Настройки") })
+                            NavigationBarItem(tab == 0, { tab = 0; openMoment = null }, { Icon(Icons.Filled.Home, null) }, label = { Text("Моменты") })
+                            NavigationBarItem(tab == 1, { tab = 1; openMoment = null }, { Icon(Icons.Filled.Person, null) }, label = { Text("Стримеры") })
+                            NavigationBarItem(tab == 2, { tab = 2; openMoment = null }, { Icon(Icons.Filled.Settings, null) }, label = { Text("Настройки") })
+                            NavigationBarItem(tab == 3, { tab = 3; openMoment = null }, { Icon(Icons.Filled.Info, null) }, label = { Text("Журнал") })
                         }
                     },
                     snackbarHost = { SnackbarHost(snackbar) },
@@ -91,10 +98,13 @@ class MainActivity : ComponentActivity() {
                 ) { padding ->
                     val m = Modifier.padding(padding)
                     androidx.compose.foundation.layout.Box(m) {
-                        when (tab) {
-                            0 -> MomentsScreen(vm, sharedLink, onNeedBattery = ::maybeAskBattery)
-                            1 -> StreamersScreen(vm, onNeedBattery = ::maybeAskBattery)
-                            else -> SettingsScreen(vm, onBattery = { openBatterySettings() }, onNotifications = { askNotifications(force = true) })
+                        val opened = openMoment
+                        when {
+                            opened != null -> ClipScreen(vm, opened, onBack = { openMoment = null })
+                            tab == 0 -> MomentsScreen(vm, sharedLink, onNeedBattery = ::maybeAskBattery, onOpenMoment = { openMoment = it })
+                            tab == 1 -> StreamersScreen(vm, onNeedBattery = ::maybeAskBattery)
+                            tab == 2 -> SettingsScreen(vm, onBattery = { openBatterySettings() }, onNotifications = { askNotifications(force = true) })
+                            else -> JournalScreen(onCopied = { Toast.makeText(this@MainActivity, "Журнал скопирован", Toast.LENGTH_SHORT).show() })
                         }
                     }
                 }

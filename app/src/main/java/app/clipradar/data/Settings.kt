@@ -6,11 +6,21 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Как укладывать горизонтальное видео в вертикальный кадр 9:16. */
+/** Как укладывать горизонтальное видео в вертикальный кадр 9:16. Чёрных полей нет ни в одном режиме. */
 enum class ClipLayout(val title: String) {
-    BLUR("Размытый фон (как в Shorts)"),
-    BLACK("Чёрные поля"),
-    CROP("Обрезать по центру (на весь экран)"),
+    FILL("Заполнить: на весь экран, кадр следует за лицом/действием"),
+    BLUR("Размытый фон: сверху и снизу размытая копия"),
+    STREAM("Стрим-раскладка: вебка сверху, игра снизу"),
+    ;
+
+    companion object {
+        /** Старые режимы «чёрные поля» и «обрезать по центру» → «Заполнить». */
+        fun parse(name: String?): ClipLayout = when (name) {
+            "BLUR" -> BLUR
+            "STREAM" -> STREAM
+            else -> FILL
+        }
+    }
 }
 
 /** Все настройки приложения. */
@@ -25,8 +35,23 @@ data class AppSettings(
     val chatSensitivity: Int = 1,
     val scoreThreshold: Int = 60,
     /** Максимальная высота скачиваемого видео: 480 / 720 / 1080. */
-    val quality: Int = 720,
-    val layout: ClipLayout = ClipLayout.BLUR,
+    val quality: Int = 1080,
+    val layout: ClipLayout = ClipLayout.FILL,
+    /** Расшифровывать речь (умные границы + субтитры). */
+    val speechEnabled: Boolean = true,
+    /** Модель Whisper: TINY или BASE. */
+    val whisperModel: String = "TINY",
+    /** Язык речи: "en", "ru" или "auto". */
+    val speechLanguage: String = "en",
+    val subtitles: Boolean = true,
+    /** «Хук в начале»: первые 1.5–2 с — кусок пика. */
+    val hookAtStart: Boolean = false,
+    /** Показать текст-хук (например, WAIT FOR IT) первые 2 секунды. */
+    val hookTextOnVideo: Boolean = false,
+    /** Максимальная длина клипа, с (минимум всегда 12). */
+    val maxClipSec: Int = 60,
+    /** Необязательный ключ Claude API для подписей. */
+    val aiApiKey: String = "",
     /** «Всегда на страже»: проверка стримеров каждые 2 минуты. */
     val guardMode: Boolean = false,
     val quietEnabled: Boolean = true,
@@ -55,7 +80,15 @@ class Settings private constructor(context: Context) {
             chatSensitivity = prefs.getInt("sensitivity", d.chatSensitivity),
             scoreThreshold = prefs.getInt("threshold", d.scoreThreshold),
             quality = prefs.getInt("quality", d.quality),
-            layout = runCatching { ClipLayout.valueOf(prefs.getString("layout", d.layout.name)!!) }.getOrDefault(d.layout),
+            layout = ClipLayout.parse(prefs.getString("layout", d.layout.name)),
+            speechEnabled = prefs.getBoolean("speech", d.speechEnabled),
+            whisperModel = prefs.getString("whisperModel", d.whisperModel)!!,
+            speechLanguage = prefs.getString("speechLang", d.speechLanguage)!!,
+            subtitles = prefs.getBoolean("subtitles", d.subtitles),
+            hookAtStart = prefs.getBoolean("hookAtStart", d.hookAtStart),
+            hookTextOnVideo = prefs.getBoolean("hookText", d.hookTextOnVideo),
+            maxClipSec = prefs.getInt("maxClip", d.maxClipSec),
+            aiApiKey = prefs.getString("aiKey", d.aiApiKey)!!,
             guardMode = prefs.getBoolean("guard", d.guardMode),
             quietEnabled = prefs.getBoolean("quiet", d.quietEnabled),
             quietStartMin = prefs.getInt("quietStart", d.quietStartMin),
@@ -77,6 +110,14 @@ class Settings private constructor(context: Context) {
             .putInt("threshold", s.scoreThreshold)
             .putInt("quality", s.quality)
             .putString("layout", s.layout.name)
+            .putBoolean("speech", s.speechEnabled)
+            .putString("whisperModel", s.whisperModel)
+            .putString("speechLang", s.speechLanguage)
+            .putBoolean("subtitles", s.subtitles)
+            .putBoolean("hookAtStart", s.hookAtStart)
+            .putBoolean("hookText", s.hookTextOnVideo)
+            .putInt("maxClip", s.maxClipSec)
+            .putString("aiKey", s.aiApiKey)
             .putBoolean("guard", s.guardMode)
             .putBoolean("quiet", s.quietEnabled)
             .putInt("quietStart", s.quietStartMin)

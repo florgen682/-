@@ -91,4 +91,16 @@ object Gallery {
     fun workDir(context: Context, name: String) = File(context.cacheDir, "work/$name").apply { mkdirs() }
 
     fun dirSize(dir: File): Long = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
+    /** Исходники для ручной правки: не больше 1.5 ГБ и не старше 14 дней — старые удаляем. */
+    fun pruneSources(context: Context, maxBytes: Long = 1536L * 1024 * 1024, maxAgeDays: Int = 14) {
+        val files = sourcesDir(context).listFiles()?.filter { it.isFile }?.sortedBy { it.lastModified() } ?: return
+        val limit = System.currentTimeMillis() - maxAgeDays * 24 * 3600_000L
+        var total = files.sumOf { it.length() }
+        for (f in files) {
+            if (total <= maxBytes && f.lastModified() >= limit) continue
+            total -= f.length()
+            f.delete()
+        }
+    }
 }

@@ -4,7 +4,7 @@ import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import android.util.Log
+import app.clipradar.util.AppLog
 import app.clipradar.core.LoudnessMeter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -96,7 +96,7 @@ object AudioAnalyzer {
             meter.finish()
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
-            Log.w(TAG, "Не удалось проанализировать звук", e)
+            AppLog.w(TAG, "Не удалось проанализировать звук", e)
             emptyList()
         } finally {
             runCatching { codec?.stop() }

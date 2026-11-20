@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -19,6 +20,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -42,14 +47,104 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         SectionCard {
-            Text("Длина клипа", style = MaterialTheme.typography.titleMedium)
-            Text("Готовые видео", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Stepper("До момента", s.vodBeforeSec, 5..60, 5, { "$it с" }) { v -> vm.updateSettings { it.copy(vodBeforeSec = v) } }
-            Stepper("После момента", s.vodAfterSec, 5..60, 5, { "$it с" }) { v -> vm.updateSettings { it.copy(vodAfterSec = v) } }
-            Text("Прямые эфиры", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Stepper("До момента", s.liveBeforeSec, 10..90, 5, { "$it с" }) { v -> vm.updateSettings { it.copy(liveBeforeSec = v) } }
-            Stepper("После момента", s.liveAfterSec, 5..60, 5, { "$it с" }) { v -> vm.updateSettings { it.copy(liveAfterSec = v) } }
-            Stepper("Пауза между клипами", s.cooldownSec, 30..600, 15, { "$it с" }) { v -> vm.updateSettings { it.copy(cooldownSec = v) } }
+            Text("Границы клипа", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Начало и конец выбираются сами: по речи (начало фразы, паузы), сменам сцен, чату и громкости. " +
+                    "Клип не режется посреди слова. Минимум — 12 секунд.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Stepper("Максимальная длина", s.maxClipSec, 20..180, 5, { "$it с" }) { v -> vm.updateSettings { it.copy(maxClipSec = v) } }
+            Stepper("Пауза между моментами эфира", s.cooldownSec, 30..600, 15, { "$it с" }) { v -> vm.updateSettings { it.copy(cooldownSec = v) } }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Хук в начале", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Если пик позже 3-й секунды — первые 1.5–2 с клипа показывают сам пик, затем нормальное начало",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = s.hookAtStart, onCheckedChange = { on -> vm.updateSettings { it.copy(hookAtStart = on) } })
+            }
+        }
+
+        SectionCard {
+            Text("Речь и субтитры", style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Расшифровывать речь", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Whisper прямо на телефоне, без интернета и платных сервисов. Модель скачается один раз.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = s.speechEnabled, onCheckedChange = { on -> vm.updateSettings { it.copy(speechEnabled = on) } })
+            }
+            if (s.speechEnabled) {
+                app.clipradar.speech.WhisperModel.entries.forEach { model ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .selectable(selected = s.whisperModel == model.name, onClick = { vm.updateSettings { it.copy(whisperModel = model.name) } }),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = s.whisperModel == model.name, onClick = { vm.updateSettings { it.copy(whisperModel = model.name) } })
+                        Text(model.title)
+                    }
+                }
+                Text("Язык речи", style = MaterialTheme.typography.bodyLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("en" to "Английский", "ru" to "Русский", "auto" to "Авто").forEach { (code, title) ->
+                        FilterChip(
+                            selected = s.speechLanguage == code,
+                            onClick = { vm.updateSettings { it.copy(speechLanguage = code) } },
+                            label = { Text(title) },
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Субтитры на видео", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Switch(checked = s.subtitles, onCheckedChange = { on -> vm.updateSettings { it.copy(subtitles = on) } })
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Текст-хук на видео", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Например, WAIT FOR IT — первые 2 секунды вверху кадра",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = s.hookTextOnVideo, onCheckedChange = { on -> vm.updateSettings { it.copy(hookTextOnVideo = on) } })
+            }
+        }
+
+        SectionCard {
+            Text("Подписи с помощью ИИ (необязательно)", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Без ключа названия, хук и описание делаются по шаблонам. С ключом Claude API их пишет ИИ " +
+                    "по расшифровке (это платно по тарифам Anthropic). Ключ хранится только на телефоне.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            var key by remember(s.aiApiKey) { mutableStateOf(s.aiApiKey) }
+            OutlinedTextField(
+                value = key,
+                onValueChange = { key = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("API-ключ ИИ") },
+                visualTransformation = PasswordVisualTransformation(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.updateSettings { it.copy(aiApiKey = key.trim()) } }) { Text("Сохранить") }
+                if (s.aiApiKey.isNotBlank()) {
+                    OutlinedButton(onClick = { key = ""; vm.updateSettings { it.copy(aiApiKey = "") } }) { Text("Удалить ключ") }
+                }
+            }
         }
 
         SectionCard {
@@ -105,9 +200,9 @@ fun SettingsScreen(
                     )
                 }
             }
-            Text("Готовый клип всегда 1080×1920 (9:16). Эфиры пишутся максимум в 720p.",
+            Text("Готовый клип всегда 1080×1920 (9:16), частота кадров как у источника (30 или 60), звук AAC 192 кбит/с, громкость −14 LUFS.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Как укладывать видео в вертикальный кадр", style = MaterialTheme.typography.bodyLarge)
+            Text("Как укладывать видео в вертикальный кадр (чёрных полей нет ни в одном режиме)", style = MaterialTheme.typography.bodyLarge)
             ClipLayout.entries.forEach { l ->
                 Row(
                     Modifier

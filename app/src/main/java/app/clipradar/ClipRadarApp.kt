@@ -1,7 +1,7 @@
 package app.clipradar
 
 import android.app.Application
-import android.util.Log
+import app.clipradar.util.AppLog
 import app.clipradar.data.Settings
 import app.clipradar.media.YtDlp
 import app.clipradar.monitor.Scheduler
@@ -19,6 +19,7 @@ class ClipRadarApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        AppLog.init(this)
         Notifier.createChannels(this)
         appScope.launch {
             try {
@@ -27,11 +28,11 @@ class ClipRadarApp : Application(), ImageLoaderFactory {
                 // Раз в сутки обновляем yt-dlp: YouTube и Twitch часто что-то меняют.
                 val s = Settings.get(this@ClipRadarApp)
                 if (System.currentTimeMillis() - s.lastYtDlpUpdate > 24 * 3600_000L) {
-                    Log.i("ClipRadar", YtDlp.update(this@ClipRadarApp))
+                    AppLog.i("ClipRadar", YtDlp.update(this@ClipRadarApp))
                     s.lastYtDlpUpdate = System.currentTimeMillis()
                 }
             } catch (e: Exception) {
-                Log.w("ClipRadar", "yt-dlp: ${e.message}")
+                AppLog.w("ClipRadar", "yt-dlp: ${e.message}")
             }
         }
         Scheduler.apply(this)

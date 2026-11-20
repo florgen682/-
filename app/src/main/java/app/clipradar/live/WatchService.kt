@@ -11,7 +11,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.util.Log
+import app.clipradar.util.AppLog
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import app.clipradar.R
@@ -85,9 +85,9 @@ class WatchService : Service() {
         }
     }
 
-    private fun startSession(channel: String, startedAt: Long?) {
+    private fun startSession(channel: String, startedAt: Long?, displayName: String? = null, game: String? = null) {
         if (sessions.containsKey(channel)) return
-        val session = LiveSession(applicationContext, channel, startedAt) { s, byUser ->
+        val session = LiveSession(applicationContext, channel, startedAt, displayName, game) { s, byUser ->
             sessions.remove(s.channel, s)
             if (!byUser) removePersisted(s.channel)
             publishStatus()
@@ -133,7 +133,7 @@ class WatchService : Service() {
             val infos = runCatching { TwitchApi.check(applicationContext, saved.toList()) }.getOrDefault(emptyMap())
             for (ch in saved) {
                 val info = infos[ch]
-                if (info == null || info.live) startSession(ch, info?.startedAt) else removePersisted(ch)
+                if (info == null || info.live) startSession(ch, info?.startedAt, info?.displayName, info?.game) else removePersisted(ch)
             }
             maybeStopSelf()
         }
@@ -145,7 +145,7 @@ class WatchService : Service() {
                 acquireLocks()
                 guardJob = scope.launch {
                     while (isActive) {
-                        runCatching { checkStreamers() }.onFailure { Log.w(TAG, "Проверка стримеров не удалась", it) }
+                        runCatching { checkStreamers() }.onFailure { AppLog.w(TAG, "Проверка стримеров не удалась", it) }
                         delay(GUARD_INTERVAL_MS)
                         if (!settings.current.guardMode) break
                     }
@@ -162,7 +162,7 @@ class WatchService : Service() {
     private suspend fun checkStreamers() {
         for (c in StreamerMonitor.check(applicationContext)) {
             if (c.isNewStream) Notifier.streamStarted(applicationContext, c.info.displayName, autoWatching = true)
-            startSession(c.info.login, c.info.startedAt)
+            startSession(c.info.login, c.info.startedAt, c.info.displayName, c.info.game)
         }
     }
 
@@ -300,7 +300,7 @@ class WatchService : Service() {
             true
         } catch (e: Exception) {
             // Android 12+ может запретить запуск из фона, если нет исключения из экономии батареи.
-            Log.w(TAG, "Не удалось запустить службу: ${e.message}")
+            AppLog.w(TAG, "Не удалось запустить службу: ${e.message}")
             false
         }
 

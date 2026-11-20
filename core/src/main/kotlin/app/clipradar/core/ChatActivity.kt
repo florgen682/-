@@ -157,6 +157,22 @@ class ChatActivityTracker(
         return ChatSnapshot(weighted, count, hype, users.size, baseline, history)
     }
 
+    /**
+     * Взвешенное число сообщений за каждую секунду в отрезке [fromMs, toMs)
+     * (для поиска начала и конца реакции чата). Хранится только последние 5 минут.
+     */
+    @Synchronized
+    fun perSecond(fromMs: Long, toMs: Long): List<Double> {
+        val n = ((toMs - fromMs) / 1000).toInt().coerceAtLeast(0)
+        val out = DoubleArray(n)
+        for (m in msgs) {
+            if (m.t < fromMs || m.t >= toMs) continue
+            val i = ((m.t - fromMs) / 1000).toInt()
+            if (i in 0 until n) out[i] += m.weight.toDouble()
+        }
+        return out.toList()
+    }
+
     @Synchronized
     fun reset() {
         msgs.clear()

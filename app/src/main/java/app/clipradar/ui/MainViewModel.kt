@@ -14,6 +14,7 @@ import app.clipradar.data.MomentEntity
 import app.clipradar.data.MomentStatus
 import app.clipradar.data.Settings
 import app.clipradar.data.StreamerEntity
+import app.clipradar.data.channelKey
 import app.clipradar.live.SessionStatus
 import app.clipradar.live.WatchService
 import app.clipradar.media.Gallery
@@ -149,9 +150,54 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             say("Мало места: свободно меньше 1 ГБ. Удалите старые клипы")
             return@launch
         }
-        ClipQueue.enqueue(ctx, m.id)
+        // По кнопке режем даже «слабые» и «отброшенные» моменты.
+        ClipQueue.enqueue(ctx, m.id, force = true)
         say("Клип поставлен в очередь на нарезку")
     }
+
+    fun observeMoment(id: Long) = db.moments().observe(id)
+
+    /** «Перерезать» с границами, выставленными вручную (секунды внутри исходника). */
+    fun recut(m: MomentEntity, start: Double, end: Double) = viewModelScope.launch {
+        if (m.sourceFile == null || !File(m.sourceFile).exists()) {
+            say("Исходник уже удалён — перерезать нельзя")
+            return@launch
+        }
+        db.moments().update(m.copy(manualStartSec = start, manualEndSec = end))
+        ClipQueue.enqueue(ctx, m.id, force = true)
+        say("Перерезаю: ${app.clipradar.core.TimeFormat.duration(end - start)}")
+    }
+
+    /** Вернуть автоматический выбор границ. */
+    fun resetManual(m: MomentEntity) = viewModelScope.launch {
+        db.moments().update(m.copy(manualStartSec = null, manualEndSec = null))
+        ClipQueue.enqueue(ctx, m.id, force = true)
+        say("Границы выберутся автоматически")
+    }
+
+    /** «Хороший / плохой момент» — запоминаем и подстраиваем порог для этого стримера. */
+    fun feedback(m: MomentEntity, good: Boolean) = viewModelScope.launch {
+        val key = m.channelKey()
+        val prefs = db.channelPrefs().get(key) ?: app.clipradar.data.ChannelPrefsEntity(key)
+        val adjust = app.clipradar.core.FeedbackTuner.adjust(prefs.thresholdAdjust, good)
+        db.channelPrefs().put(
+            prefs.copy(
+                thresholdAdjust = adjust,
+                good = prefs.good + if (good) 1 else 0,
+                bad = prefs.bad + if (good) 0 else 1,
+            ),
+        )
+        db.moments().update(m.copy(feedback = if (good) 1 else -1))
+        val name = m.channel ?: "этого канала"
+        val base = settings.value.scoreThreshold
+        say(
+            if (good) "Запомнил: хороший момент. Порог для $name: ${app.clipradar.core.FeedbackTuner.threshold(base, adjust)}"
+            else "Запомнил: плохой момент. Для $name буду строже: порог ${app.clipradar.core.FeedbackTuner.threshold(base, adjust)}",
+        )
+    }
+
+    /** Громкость исходника для «волны звука» в редакторе (шаг 0.5 с). */
+    suspend fun waveform(file: File): List<Double> = app.clipradar.media.AudioDecoder.scan(file, want16k = false).loudHalfSec
 
     fun delete(m: MomentEntity) = viewModelScope.launch(Dispatchers.IO) {
         deleteMomentFiles(m)
